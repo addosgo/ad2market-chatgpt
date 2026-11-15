@@ -122,7 +122,7 @@ export default async function handler(req, res) {
   });
 
 
-  const bearer = typeof req.headers.authorization === "string" && /^Bearer\\s+\\S+$/i.test(req.headers.authorization)
+  const bearer = typeof req.headers.authorization === "string" && /^Bearer\s+\S+$/i.test(req.headers.authorization)
     ? req.headers.authorization : null;
   const cartRequest = async (path, options = {}) => {
     if (!bearer) return { authRequired: true, message: "Vincula tu cuenta de AD2 MARKET con ChatGPT antes de acceder al carrito." };
