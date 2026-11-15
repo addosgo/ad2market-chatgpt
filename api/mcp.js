@@ -6,6 +6,11 @@ export const config = { maxDuration: 20 };
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  const contentLength = Number(req.headers["content-length"] || 0);
+  if (contentLength > 16384 || JSON.stringify(req.body ?? {}).length > 16384) {
+    return res.status(413).json({ error: "Request too large" });
+  }
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Use MCP POST requests" });
@@ -18,9 +23,9 @@ export default async function handler(req, res) {
     inputSchema: {
       query: z.string().trim().min(2).max(100).describe("Producto que desea buscar el cliente"),
       city: z.string().trim().min(2).max(100).describe("Localidad española, por ejemplo Málaga"),
-      limit: z.number().int().min(1).max(30).optional().describe("Número máximo de resultados")
+      limit: z.number().int().min(1).max(20).optional().describe("Número máximo de resultados")
     }
-  }, async ({ query, city, limit = 20 }) => {
+  }, async ({ query, city, limit = 10 }) => {
     const url = new URL("/api/chatgpt/products", "https://ad2market.com");
     url.searchParams.set("q", query);
     url.searchParams.set("city", city);
@@ -29,7 +34,7 @@ export default async function handler(req, res) {
       const response = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000), cache: "no-store" });
       if (!response.ok) throw new Error("Catalog API returned HTTP " + response.status);
       const data = await response.json();
-      const prices = Array.isArray(data.prices) ? data.prices : [];
+      const prices = Array.isArray(data.prices) ? data.prices.slice(0, limit) : [];
       const result = {
         service: "AD2 MARKET", query, city, currency: "EUR",
         count: prices.length,
