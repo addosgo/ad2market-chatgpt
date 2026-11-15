@@ -26,13 +26,17 @@ export default async function handler(req, res) {
       limit: z.number().int().min(1).max(20).optional().describe("Número máximo de resultados")
     }
   }, async ({ query, city, limit = 10 }) => {
-    const unit1l = /\b(?:de\s+)?1\s*(?:litro|litros|l)\b/i.test(query);
-    const normalizedQuery = unit1l ? query.replace(/\b(?:de\s+)?1\s*(?:litro|litros|l)\b/gi, " ").replace(/\s+/g, " ").trim() : query;
+    const volumePattern = /\b(?:de\s+)?(\d+(?:[.,]\d+)?)\s*(?:litros?|l)\b/i;
+    const volumeMatch = query.match(volumePattern);
+    const requestedLiters = volumeMatch ? Number(volumeMatch[1].replace(",", ".")) : null;
+    const normalizedQuery = volumeMatch
+      ? query.replace(volumePattern, " ").replace(/\s+/g, " ").trim()
+      : query;
     const fetchPrices = async (term) => {
       const url = new URL("/api/chatgpt/products", "https://ad2market.com");
       url.searchParams.set("q", term);
       url.searchParams.set("city", city);
-      url.searchParams.set("limit", String(unit1l ? 20 : limit));
+      url.searchParams.set("limit", String(requestedLiters !== null ? 20 : limit));
       const response = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000), cache: "no-store" });
       if (!response.ok) throw new Error("Catalog API returned HTTP " + response.status);
       const data = await response.json();
@@ -43,8 +47,11 @@ export default async function handler(req, res) {
       if (prices.length === 0 && normalizedQuery !== query && normalizedQuery.length >= 2) {
         prices = await fetchPrices(normalizedQuery);
       }
-      if (unit1l) {
-        prices = prices.filter(p => /\b1\s*(?:l|litro|litros)\b/i.test(String(p.storeProductName || "")));
+      if (requestedLiters !== null) {
+        prices = prices.filter(p => {
+          const productVolume = String(p.storeProductName || "").match(/\b(\d+(?:[.,]\d+)?)\s*(?:litros?|l)\b/i);
+          return productVolume && Number(productVolume[1].replace(",", ".")) === requestedLiters;
+        });
       }
       prices = prices.slice(0, limit);
       const result = {
