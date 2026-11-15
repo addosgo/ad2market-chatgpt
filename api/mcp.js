@@ -80,10 +80,10 @@ export default async function handler(req, res) {
       city: z.string().trim().min(2).max(100).describe("Localidad del cliente"),
     }
   }, async ({ query, city }) => {
-    const volumePattern = /\\b(?:de\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(?:litros?|l)\\b/i;
+    const volumePattern = /\b(?:de\s+)?(\d+(?:[.,]\d+)?)\s*(?:litros?|l)\b/i;
     const volumeMatch = query.match(volumePattern);
     const requestedLiters = volumeMatch ? Number(volumeMatch[1].replace(",", ".")) : null;
-    const normalizedQuery = volumeMatch ? query.replace(volumePattern, " ").replace(/\\s+/g, " ").trim() : query;
+    const normalizedQuery = volumeMatch ? query.replace(volumePattern, " ").replace(/\s+/g, " ").trim() : query;
     const fetchPrices = async (term) => {
       const url = new URL("/api/chatgpt/products", "https://ad2market.com");
       url.searchParams.set("q", term);
@@ -98,7 +98,7 @@ export default async function handler(req, res) {
       let prices = await fetchPrices(query);
       if (!prices.length && normalizedQuery !== query && normalizedQuery.length >= 2) prices = await fetchPrices(normalizedQuery);
       if (requestedLiters !== null) prices = prices.filter(p => {
-        const match = String(p.storeProductName || "").match(/\\b(\\d+(?:[.,]\\d+)?)\\s*(?:litros?|l)\\b/i);
+        const match = String(p.storeProductName || "").match(/\b(\d+(?:[.,]\d+)?)\s*(?:litros?|l)\b/i);
         return match && Number(match[1].replace(",", ".")) === requestedLiters;
       });
       prices = prices.filter(p => Number.isFinite(Number(p.price)) && Number(p.price) > 0);
@@ -118,6 +118,59 @@ export default async function handler(req, res) {
     } catch (error) {
       console.error("MCP cheapest product error:", error);
       return { isError: true, content: [{ type: "text", text: "No se pudo consultar el catálogo de AD2 MARKET en este momento." }] };
+    }
+  });
+
+
+  const bearer = typeof req.headers.authorization === "string" && /^Bearer\\s+\\S+$/i.test(req.headers.authorization)
+    ? req.headers.authorization : null;
+  const cartRequest = async (path, options = {}) => {
+    if (!bearer) return { authRequired: true, message: "Vincula tu cuenta de AD2 MARKET con ChatGPT antes de acceder al carrito." };
+    const response = await fetch(new URL(path, "https://ad2market.com"), {
+      ...options,
+      headers: { Authorization: bearer, Accept: "application/json", ...(options.headers || {}) },
+      signal: AbortSignal.timeout(12000),
+      cache: "no-store"
+    });
+    const result = await response.json().catch(() => ({ error: "Respuesta no válida de AD2 MARKET." }));
+    if (!response.ok) return { error: result.error || "No se pudo acceder al carrito.", status: response.status };
+    return result;
+  };
+  server.registerTool("get_cart", {
+    title: "Consultar mi carrito AD2 MARKET",
+    description: "Consulta exclusivamente el carrito del cliente autenticado mediante OAuth. No modifica productos ni realiza pagos.",
+    inputSchema: {}
+  }, async () => {
+    try {
+      const result = await cartRequest("/api/chatgpt/cart");
+      return { isError: !!(result.error || result.authRequired), content: [{ type: "text", text: JSON.stringify(result) }] };
+    } catch (error) {
+      console.error("MCP cart read error:", error);
+      return { isError: true, content: [{ type: "text", text: "No se pudo consultar el carrito." }] };
+    }
+  });
+  server.registerTool("add_to_cart", {
+    title: "Añadir producto al carrito AD2 MARKET",
+    description: "Añade un producto identificado por productId al carrito del cliente autenticado. Requiere confirmación explícita previa del cliente, dirección de reparto activa y token OAuth con permiso cart:write. No compra ni paga el pedido. No invoques esta herramienta sin confirmar producto y cantidad con el cliente.",
+    inputSchema: {
+      productId: z.string().uuid().describe("ID del producto canónico obtenido de find_cheapest_product"),
+      quantity: z.number().int().min(1).max(50),
+      confirmed: z.literal(true).describe("El cliente ha autorizado expresamente añadir esta cantidad de este producto")
+    }
+  }, async ({ productId, quantity, confirmed }) => {
+    try {
+      const result = await cartRequest("/api/chatgpt/cart/items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId, quantity, confirmed })
+      });
+      return { isError: !!(result.error || result.authRequired), content: [{ type: "text", text: JSON.stringify({
+        ...result, checkoutUrl: result.ok ? "https://ad2market.com/cesta" : undefined,
+        notice: "La cesta puede optimizar supermercados al cotizar. El precio y reparto definitivos se confirman en AD2 MARKET."
+      }) }] };
+    } catch (error) {
+      console.error("MCP cart write error:", error);
+      return { isError: true, content: [{ type: "text", text: "No se pudo añadir el producto." }] };
     }
   });
 
