@@ -26,8 +26,8 @@ export default async function handler(req, res) {
       limit: z.number().int().min(1).max(20).optional().describe("Número máximo de resultados")
     }
   }, async ({ query, city, limit = 10 }) => {
-    const unit1l = /\\b(?:de\\s+)?1\\s*(?:litro|litros|l)\\b/i.test(query);
-    const normalizedQuery = unit1l ? query.replace(/\\b(?:de\\s+)?1\\s*(?:litro|litros|l)\\b/gi, " ").replace(/\\s+/g, " ").trim() : query;
+    const unit1l = /\b(?:de\s+)?1\s*(?:litro|litros|l)\b/i.test(query);
+    const normalizedQuery = unit1l ? query.replace(/\b(?:de\s+)?1\s*(?:litro|litros|l)\b/gi, " ").replace(/\s+/g, " ").trim() : query;
     const fetchPrices = async (term) => {
       const url = new URL("/api/chatgpt/products", "https://ad2market.com");
       url.searchParams.set("q", term);
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
         prices = await fetchPrices(normalizedQuery);
       }
       if (unit1l) {
-        prices = prices.filter(p => /\\b1\\s*(?:l|litro|litros)\\b/i.test(String(p.storeProductName || "")));
+        prices = prices.filter(p => /\b1\s*(?:l|litro|litros)\b/i.test(String(p.storeProductName || "")));
       }
       prices = prices.slice(0, limit);
       const result = {
