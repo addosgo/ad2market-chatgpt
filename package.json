@@ -1,11 +1,8 @@
-
 {
   "name": "ad2market-chatgpt",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "build": "echo Build completed"
-  },
+  "type": "module",
   "engines": {
     "node": "22.x"
   }
